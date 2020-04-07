@@ -689,6 +689,7 @@ vioscsi_free_reqs(struct vioscsi_softc *sc, struct virtio_softc *vsc)
 
 MODULE(MODULE_CLASS_DRIVER, vioscsi, "virtio");
 
+#undef _MODULE
 #ifdef _MODULE
 #include "ioconf.c"
 #endif
