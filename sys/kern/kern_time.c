@@ -78,6 +78,8 @@ __KERNEL_RCSID(0, "$NetBSD: kern_time.c,v 1.189 2016/11/11 15:29:36 njoly Exp $"
 #include <sys/syscallargs.h>
 #include <sys/cpu.h>
 
+#include <rump/rumpuser.h>
+
 static void	timer_intr(void *);
 static void	itimerfire(struct ptimer *);
 static void	itimerfree(struct ptimers *, int);
@@ -424,7 +426,9 @@ sys___gettimeofday50(struct lwp *l, const struct sys___gettimeofday50_args *uap,
 	struct timezone tzfake;
 
 	if (SCARG(uap, tp)) {
-		microtime(&atv);
+        rumpuser_clock_gettime(RUMPUSER_CLOCK_ABSMONO, &atv.tv_sec, &atv.tv_usec);
+        atv.tv_usec /= 1000;
+
 		error = copyout(&atv, SCARG(uap, tp), sizeof(atv));
 		if (error)
 			return (error);
