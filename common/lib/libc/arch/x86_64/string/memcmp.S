@@ -11,30 +11,20 @@
 #endif
 
 ENTRY(memcmp)
-	movq	%rdx,%rcx		/* compare by longs */
-	shrq	$3,%rcx
-	repe
-	cmpsq
-	jne	L5			/* do we match so far? */
-
-	movq	%rdx,%rcx		/* compare remainder by bytes */
-	andq	$7,%rcx
-	repe
-	cmpsb
-	jne	L6			/* do we match? */
-
-	xorl	%eax,%eax		/* we match, return zero	*/
-	ret
-
-L5:	movl	$8,%ecx			/* We know that one of the next	*/
-	subq	%rcx,%rdi		/* eight pairs of bytes do not	*/
-	subq	%rcx,%rsi		/* match.			*/
-	repe
-	cmpsb
-L6:	xorl	%eax,%eax		/* Perform unsigned comparison	*/
-	movb	-1(%rdi),%al
-	xorl	%edx,%edx
-	movb	-1(%rsi),%dl
-	subl    %edx,%eax
-	ret
+    test   %rdx,%rdx
+    je     L5
+    xor    %ecx,%ecx
+    nopl   0x0(%rax,%rax,1)
+L4: movzbl (%rdi,%rcx,1),%eax
+    movzbl (%rsi,%rcx,1),%r8d
+    cmp    %r8b,%al
+    jne    L6
+    add    $0x1,%rcx
+    cmp    %rcx,%rdx
+    jne    L4
+L5: xor    %eax,%eax
+    retq
+L6: sub    %r8d,%eax
+    retq
+    xchg   %ax,%ax
 END(memcmp)
