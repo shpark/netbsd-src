@@ -550,7 +550,7 @@ makeprivate(enum vtype vt, mode_t mode, dev_t rdev, off_t size, bool et)
 	va->va_fsid = 
 	va->va_fileid = atomic_inc_uint_nv(&lastino);
 	va->va_size = size;
-	va->va_blocksize = 512;
+	va->va_blocksize = PAGE_SIZE;
 	va->va_atime = ts;
 	va->va_mtime = ts;
 	va->va_ctime = ts;
@@ -727,10 +727,21 @@ rump_vop_lookup(void *v)
 		strlcat(newpath, "/", newpathlen);
 		strlcat(newpath, cnp->cn_nameptr, newpathlen);
 
-		if ((error = rumpuser_getfileinfo(newpath, &fsize, &hft)) != 0){
-			free(newpath, M_TEMP);
-			return error;
-		}
+        if ((error = rumpuser_getfileinfo(newpath, &fsize, &hft)) != 0){
+            // If this is an etfs file, create it!
+            if (cnp->cn_nameiop == CREATE) {
+                int temp;
+                rv = rumpuser_open(newpath,
+                        RUMPUSER_OPEN_WRONLY | RUMPUSER_OPEN_CREATE, &temp);
+                rumpuser_close(temp);
+
+                error = rumpuser_getfileinfo(newpath, &fsize, &hft);
+
+            } else {
+                free(newpath, M_TEMP);
+                return error;
+            }
+        }
 
 		/* allow only dirs and regular files */
 		if (hft != RUMPUSER_FT_REG && hft != RUMPUSER_FT_DIR) {
@@ -1264,7 +1275,7 @@ rump_vop_open(void *v)
 		if (rn->rn_writefd != -1)
 			return 0;
 		error = rumpuser_open(rn->rn_hostpath,
-		    RUMPUSER_OPEN_WRONLY, &rn->rn_writefd);
+		    RUMPUSER_OPEN_WRONLY | RUMPUSER_OPEN_CREATE, &rn->rn_writefd);
 	}
 
 	return error;
