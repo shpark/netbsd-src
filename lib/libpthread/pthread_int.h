@@ -281,12 +281,7 @@ pthread__self(void)
        	       pthread__assertfunc(__FILE__, __LINE__, __func__, #e);	\
         } while (/*CONSTCOND*/0)
 
-#define pthread__error(err, msg, e) do {				\
-	if (__predict_false(!(e))) {					\
-       	       pthread__errorfunc(__FILE__, __LINE__, __func__, msg);	\
-	       return (err);						\
-	} 								\
-        } while (/*CONSTCOND*/0)
+#define pthread__error(err, msg, e) do { } while (/*CONSTCOND*/0)
 
 void 	*pthread_tsd_init(size_t *) PTHREAD_HIDE;
 void	pthread__destroy_tsd(pthread_t) PTHREAD_HIDE;
