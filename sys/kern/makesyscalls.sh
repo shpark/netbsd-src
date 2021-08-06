@@ -107,7 +107,8 @@ systracetmp="systrace.$$"
 systraceret="systraceret.$$"
 
 cleanup() {
-    rm $sysdcl $sysprotos $sysent $sysnamesbottom $sysnamesfriendly $rumpsysent $rumptypes $rumpprotos $systracetmp $systraceret $sysautoloadbottom
+	echo "FIXME> We will skip cleanup for now"
+    # rm $sysdcl $sysprotos $sysent $sysnamesbottom $sysnamesfriendly $rumpsysent $rumptypes $rumpprotos $systracetmp $systraceret $sysautoloadbottom
 }
 trap "cleanup" 0
 
@@ -273,8 +274,10 @@ NR == 1 {
 
 	printf " * created from%s\n */\n\n", $0 > sysautoload
 	printf "#include <sys/cdefs.h>\n__KERNEL_RCSID(0, \"%s\");\n\n", tag > sysautoload
-	printf("static struct sc_autoload " emulname \
-		"_syscalls_autoload[] = {\n")		> sysautoloadbottom
+
+	# HACK: We will now going to ignore sysautoloadbottom.
+	# printf("static struct sc_autoload " emulname \
+	# 	"_syscalls_autoload[] = {\n")		> sysautoloadbottom
 
 	printf " * created from%s\n */\n\n", $0 > rumpcalls
 	printf "#ifdef RUMP_CLIENT\n" > rumpcalls
@@ -1173,14 +1176,16 @@ END {
 cat $sysprotos >> $sysarghdr
 echo "#endif /* _${constprefix}SYSCALL_H_ */" >> $sysnumhdr
 echo "#endif /* _${constprefix}SYSCALLARGS_H_ */" >> $sysarghdr
-printf "\t    { 0, NULL }\n" >> $sysautoloadbottom
-echo "};" >> $sysautoloadbottom
+# HACK: Same
+# printf "\t    { 0, NULL }\n" >> $sysautoloadbottom
+# echo "};" >> $sysautoloadbottom
 printf "\n#endif /* _RUMP_RUMP_SYSCALLS_H_ */\n" >> $rumpprotos
 cat $sysdcl $sysent > $syssw
 cat $sysnamesbottom >> $sysnames
 cat $sysnamesfriendly >> $sysnames
 cat $rumpsysent >> $rumpcalls
-cat $sysautoloadbottom >> $sysautoload
+# HACK: ¯\_(ツ)_/¯
+# cat $sysautoloadbottom >> $sysautoload
 
 touch $rumptypes
 cat $rumptypes >> $rumpcallshdr
