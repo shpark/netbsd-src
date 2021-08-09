@@ -161,7 +161,7 @@ mutex_enter(kmutex_t *mtx)
 {
 
 	WANTLOCK(mtx, 0);
-	if (!rumpuser_mutex_spin_p(RUMPMTX(mtx)))
+	// if (!rumpuser_mutex_spin_p(RUMPMTX(mtx)))
 		BARRIER(mtx, 1);
 	rumpuser_mutex_enter(RUMPMTX(mtx));
 	LOCKED(mtx, false);
@@ -171,7 +171,7 @@ void
 mutex_spin_enter(kmutex_t *mtx)
 {
 
-	KASSERT(rumpuser_mutex_spin_p(RUMPMTX(mtx)));
+	// KASSERT(rumpuser_mutex_spin_p(RUMPMTX(mtx)));
 	WANTLOCK(mtx, 0);
 	rumpuser_mutex_enter_nowrap(RUMPMTX(mtx));
 	LOCKED(mtx, false);
