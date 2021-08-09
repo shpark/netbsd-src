@@ -57,7 +57,7 @@ SRCS+=	pthread_barrier.c
 SRCS+=	pthread_cancelstub.c
 .endif
 SRCS+=	pthread_cond.c
-SRCS+=	pthread_getcpuclockid.c
+# HACK(shpark) SRCS+=	pthread_getcpuclockid.c
 SRCS+=	pthread_lock.c 
 SRCS+=	${PTHREAD_MAKELWP}
 SRCS+=	pthread_misc.c
