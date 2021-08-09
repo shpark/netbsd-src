@@ -2095,6 +2095,7 @@ vioif_ctl_softint(void *arg)
 
 MODULE(MODULE_CLASS_DRIVER, if_vioif, "virtio");
 
+#undef _MODULE
 #ifdef _MODULE
 #include "ioconf.c"
 #endif

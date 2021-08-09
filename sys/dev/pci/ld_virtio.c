@@ -783,6 +783,7 @@ ld_virtio_ioctl(struct ld_softc *ld, u_long cmd, void *addr, int32_t flag, bool 
 
 MODULE(MODULE_CLASS_DRIVER, ld_virtio, "ld,virtio");
 
+#undef _MODULE
 #ifdef _MODULE
 /*
  * XXX Don't allow ioconf.c to redefine the "struct cfdriver ld_cd"

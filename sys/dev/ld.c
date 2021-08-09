@@ -721,6 +721,7 @@ lddiscard(dev_t dev, off_t pos, off_t len)
 
 MODULE(MODULE_CLASS_DRIVER, ld, "dk_subr");
 
+#undef _MODULE
 #ifdef _MODULE
 CFDRIVER_DECL(ld, DV_DISK, NULL);
 #endif
