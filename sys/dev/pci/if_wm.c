@@ -148,6 +148,10 @@ __KERNEL_RCSID(0, "$NetBSD: if_wm.c,v 1.645.2.10 2020/11/16 18:21:45 martin Exp 
 #include <dev/pci/if_wmreg.h>
 #include <dev/pci/if_wmvar.h>
 
+// See https://github.com/gz/src-netbsd/commit/d9cb5f4c.
+#include <sys/cprng.h>
+#define rss_getkey(a) cprng_fast(a, sizeof(a))
+
 #ifdef WM_DEBUG
 #define	WM_DEBUG_LINK		__BIT(0)
 #define	WM_DEBUG_TX		__BIT(1)
