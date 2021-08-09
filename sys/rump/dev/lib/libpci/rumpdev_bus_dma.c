@@ -86,6 +86,8 @@ __KERNEL_RCSID(0, "$NetBSD: rumpdev_bus_dma.c,v 1.8 2019/01/27 02:08:48 pgoyette
 
 #define	EIEIO	membar_sync()
 
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+
 int	_bus_dmamap_load_buffer (bus_dma_tag_t, bus_dmamap_t, void *,
 	    bus_size_t, struct vmspace *, int, paddr_t *, int *, int);
 
