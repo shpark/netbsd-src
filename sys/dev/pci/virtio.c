@@ -1034,7 +1034,8 @@ virtiobusprint(void *aux, const char *pnp)
 }
 
 MODULE(MODULE_CLASS_DRIVER, virtio, NULL);
- 
+
+#undef _MODULE
 #ifdef _MODULE
 #include "ioconf.c"
 #endif

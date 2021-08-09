@@ -836,6 +836,7 @@ virtio_pci_msix_config_intr(void *arg)
 
 MODULE(MODULE_CLASS_DRIVER, virtio_pci, "pci,virtio");
 
+#undef _MODULE
 #ifdef _MODULE
 #include "ioconf.c"
 #endif

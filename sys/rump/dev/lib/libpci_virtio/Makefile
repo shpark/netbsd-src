@@ -12,6 +12,7 @@ IOCONF=	PCI_VIRTIO.ioconf
 RUMP_COMPONENT=ioconf
 
 SRCS+=	virtio.c
+SRCS+=	virtio_pci.c
 
 CPPFLAGS+= -I${RUMPTOP}/librump/rumpkern
    
