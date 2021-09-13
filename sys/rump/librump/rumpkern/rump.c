@@ -220,6 +220,8 @@ RUMP_COMPONENT(RUMP_COMPONENT_POSTINIT)
 
 #endif /* RUMP_USE_CTOR */
 
+int SEV_ENABLED = 0;
+
 int
 rump_init(void (*cpuinit_callback) (void))
 {
@@ -396,6 +398,10 @@ rump_init(void (*cpuinit_callback) (void))
 
 	if (cpuinit_callback)
 		cpuinit_callback();
+
+	// See https://github.com/shpark/node-replicated-kernel/commit/539ddd6e
+	// for more details.
+	aprint_verbose("SEV is enabled? %s\n", SEV_ENABLED > 0 ? "yes" : "no");
 
 	/* CPUs are up.  allow kernel threads to run */
 	rump_thread_allow(NULL);
