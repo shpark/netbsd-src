@@ -434,6 +434,8 @@ void
 bus_dmamap_sync(bus_dma_tag_t t, bus_dmamap_t map,
 	bus_addr_t offset, bus_size_t len, int ops)
 {
+	/* TODO(sev) */
+	rumpcomp_pci_dmamap_sync(NULL);
 
 	/* XXX: this might need some MD tweaks */
 	membar_sync();

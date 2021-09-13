@@ -23,6 +23,7 @@ int rumpcomp_pci_dmalloc(size_t, size_t, unsigned long *, unsigned long *);
 #ifdef RUMPCOMP_USERFEATURE_PCI_DMAFREE
 void rumpcomp_pci_dmafree(unsigned long, size_t);
 #endif
+int rumpcomp_pci_dmamap_sync(void *); /* TODO */
 
 struct rumpcomp_pci_dmaseg {
 	unsigned long ds_pa;
