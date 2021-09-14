@@ -83,6 +83,28 @@
 
 #define	EIEIO	membar_sync()
 
+/* See arch/x86/inlcude/bus_private.h as well. */
+struct rump_bus_dma_cookie {
+	int flags; /* might_need_bounce, has_bounce, is_bouncing */
+	void *origbuf;
+	/* bus_size_t id_origbuflen; */
+	int buftype; /* INVALID, LINEAR, MBUF, UIO */
+	paddr_t bouncebuf_pa;
+	vaddr_t bouncebuf_va;
+	/* e.g., cookie->id_bouncebuflen = round_page(size); */
+	bus_size_t bouncelen;
+	bus_dma_segment_t bouncesegs[0];
+};
+
+#define RUMP_DMA_HAS_BOUNCE	0x2
+#define RUMP_DMA_IS_BOUNCING	0x4
+
+#define RUMP_DMA_BUFTYPE_INVALID	0
+#define RUMP_DMA_BUFTYPE_LINEAR		1
+#define RUMP_DMA_BUFTYPE_MBUF		2
+#define RUMP_DMA_BUFTYPE_UIO		3 /* TODO(unimplemented) */
+#define RUMP_DMA_BUFTYPE_RAW		4 /* TODO(unimplemented) */
+
 extern int SEV_ENABLED;
 
 int	_bus_dmamap_load_buffer (bus_dma_tag_t, bus_dmamap_t, void *,
@@ -100,6 +122,12 @@ bus_dmamap_create(bus_dma_tag_t t, bus_size_t size, int nsegments,
 	bus_dmamap_t map;
 	void *mapstore;
 	size_t mapsize;
+
+	struct rump_bus_dma_cookie *cookie;
+	size_t cookiesize;
+	void *cookiestore;
+
+	int error;
 
 	/*
 	 * Allocate and initialize the DMA map.  The end of the map
@@ -130,11 +158,46 @@ bus_dmamap_create(bus_dma_tag_t t, bus_size_t size, int nsegments,
 	map->dm_mapsize = 0;		/* no valid mappings */
 	map->dm_nsegs = 0;
 
-	if (SEV_ENABLED) {
-		aprint_verbose("SEV enabled");
-	}
+	aprint_debug("%s(size=%#lx) -> %p\n", __func__, size, map);
+
+	/* TODO(feature?): Support multiple segments? Currently nrkernel also
+	 * supports single segment only. */
+	if (__predict_true(SEV_ENABLED)) {
+		cookiesize = sizeof(*cookie) + sizeof(bus_dma_segment_t);
+		if ((cookiestore = kmem_intr_alloc(mapsize,
+		    (flags & BUS_DMA_NOWAIT) ? KM_NOSLEEP : KM_SLEEP)) == NULL)
+			return (ENOMEM);
+		cookie = (struct rump_bus_dma_cookie*) cookiestore;
+
+		cookie->flags = 0;
+		cookie->origbuf = NULL; /* Set by bus_dmamap_load. */
+		cookie->buftype = RUMP_DMA_BUFTYPE_INVALID; /* ... same here. */
+		/* TODO: Support bounce buffer size other than 4KiB of 2MiB. */
+		cookie->bouncelen = size > 1 << 12 ? 1 << 21 : 1 << 12;
+
+		/* Allocate the bounce buffer. The hypervisor should make sure
+		   the region is mapped unencrypted and shared.
+		   NOTE: In x86 implementation, bounce buffer allocation is
+		   done by _bus_dmamem_alloc and _bus_dmamem_map. */
+		error = rumpcomp_pci_dmalloc(cookie->bouncelen /* size */,
+					     cookie->bouncelen /* alignment */,
+					     &cookie->bouncebuf_pa,
+					     &cookie->bouncebuf_va);
+		if (error) {
+			kmem_free(mapstore, mapsize);
+			kmem_free(cookiestore, cookiesize);
+			return error;
+		}
+
+		/* so _bus_dmamap_load() knows we don't have to allocate a new
+		   bounce buffer */
+		cookie->flags |= RUMP_DMA_HAS_BOUNCE;
+		map->_dm_cookie = cookiestore;
+	} else
+		map->_dm_cookie = NULL;
 
 	*dmamp = map;
+
 	return (0);
 }
 
@@ -167,11 +230,39 @@ _bus_dmamap_load_buffer(bus_dma_tag_t t, bus_dmamap_t map,
 	vaddr_t vaddr = (vaddr_t)buf;
 	int seg;
 
-//	printf("%s(%p,%p,%p,%u,%p,%#x,%p,%p,%u)\n", __func__,
-//	    t, map, buf, buflen, vm, flags, lastaddrp, segp, first);
-
 	lastaddr = *lastaddrp;
 	bmask = ~(map->_dm_boundary - 1);
+
+	struct rump_bus_dma_cookie *cookie = map->_dm_cookie;
+	if (SEV_ENABLED && cookie) {
+		if (cookie->flags & RUMP_DMA_HAS_BOUNCE &&
+		    cookie->bouncebuf_va &&
+		    cookie->bouncelen >= buflen) {
+			/*
+			 * Set DMA map pointers (i.e., origbuf and
+			 * bouncebuf_va) only if the buftype is invalid.
+			 * If _bus_dmamap_load_buffer is called from
+			 * _bus_dmamap_load_mbuf, origbuf points to
+			 * m0 (mbuf) and buf points to the bounce buffer
+			 * and we'd better mess them up.
+			 *
+			 * TODO: UIO?
+			 */
+			if (cookie->buftype == RUMP_DMA_BUFTYPE_INVALID) {
+				cookie->origbuf = (void *) buf;
+				cookie->buftype = RUMP_DMA_BUFTYPE_LINEAR;
+				vaddr = cookie->bouncebuf_va;
+				/* so _bus_dmamap_sync() knows we're
+				 * using bounce buffer */
+				cookie->flags |= RUMP_DMA_IS_BOUNCING;
+			} else if (cookie->buftype == RUMP_DMA_BUFTYPE_MBUF) {
+				/* so _bus_dmamap_sync() knows we're
+				 * using bounce buffer. */
+				cookie->flags |= RUMP_DMA_IS_BOUNCING;
+			}
+		} else
+			panic("%s Expected a bounce buffer (SEV)", __func__);
+	}
 
 	for (seg = *segp; buflen > 0 ; ) {
 		/*
@@ -181,7 +272,9 @@ _bus_dmamap_load_buffer(bus_dma_tag_t t, bus_dmamap_t map,
 			(void) pmap_extract(vm_map_pmap(&vm->vm_map),
 			    vaddr, (void *)&curaddr);
 		else
-			curaddr = vtophys(vaddr);
+			/* vtophys simply casts vaddr to paddr */
+			curaddr = vtophys(vaddr); /* points to the bounce
+						     buffer */
 
 		/*
 		 * If we're beyond the bounce threshold, notify
@@ -220,12 +313,12 @@ _bus_dmamap_load_buffer(bus_dma_tag_t t, bus_dmamap_t map,
 		} else {
 			if (curaddr == lastaddr &&
 			    (map->dm_segs[seg].ds_len + sgsize) <=
-			     map->dm_maxsegsz &&
+			    map->dm_maxsegsz &&
 			    (map->_dm_boundary == 0 ||
-			     (map->dm_segs[seg].ds_addr & bmask) ==
-			     (rumpcomp_pci_virt_to_mach((void*)curaddr)&bmask)))
+			    (map->dm_segs[seg].ds_addr & bmask) ==
+			    (rumpcomp_pci_virt_to_mach((void*)curaddr)&bmask))) {
 				map->dm_segs[seg].ds_len += sgsize;
-			else {
+			} else {
 				if (++seg >= map->_dm_segcnt)
 					break;
 				map->dm_segs[seg].ds_addr =
@@ -291,6 +384,10 @@ bus_dmamap_load(bus_dma_tag_t t, bus_dmamap_t map,
 
 /*
  * Like _bus_dmamap_load(), but for mbufs.
+ * TODO:
+ * - Set cookie->origbuf to the mbuf VA
+ * - Set map->dm_segs[seg].ds_addr to bounce buffer PA
+ * - Set len to ???
  */
 int
 bus_dmamap_load_mbuf(bus_dma_tag_t t, bus_dmamap_t map,
@@ -299,6 +396,7 @@ bus_dmamap_load_mbuf(bus_dma_tag_t t, bus_dmamap_t map,
 	paddr_t lastaddr = 0;
 	int seg, error, first;
 	struct mbuf *m;
+	struct rump_bus_dma_cookie *cookie = map->_dm_cookie;
 
 	/*
 	 * Make sure that on error condition we return "no valid mappings."
@@ -315,6 +413,8 @@ bus_dmamap_load_mbuf(bus_dma_tag_t t, bus_dmamap_t map,
 	if (m0->m_pkthdr.len > map->_dm_size)
 		return (EINVAL);
 
+	/* XXX(sev): If we always use bounce buffers, do we ever need to
+	   run the for-loop below? */
 	first = 1;
 	seg = 0;
 	error = 0;
@@ -357,6 +457,20 @@ bus_dmamap_load_mbuf(bus_dma_tag_t t, bus_dmamap_t map,
 		map->dm_mapsize = m0->m_pkthdr.len;
 		map->dm_nsegs = seg + 1;
 	}
+
+	if (SEV_ENABLED && cookie) {
+		if (cookie->flags & RUMP_DMA_HAS_BOUNCE &&
+		    cookie->bouncebuf_va &&
+		    cookie->bouncelen >= m0->m_pkthdr.len) {
+			cookie->origbuf = (void *) m0;
+			cookie->buftype = RUMP_DMA_BUFTYPE_MBUF;
+			void *bouncebuf_va = (void *) cookie->bouncebuf_va;
+			error = bus_dmamap_load(t, map, bouncebuf_va,
+						m0->m_pkthdr.len, NULL, flags);
+		} else
+			panic("%s Expected a bounce buffer (SEV)", __func__);
+	}
+
 	return (error);
 }
 
@@ -426,6 +540,7 @@ bus_dmamap_load_raw(bus_dma_tag_t t, bus_dmamap_t map,
 void
 bus_dmamap_unload(bus_dma_tag_t t, bus_dmamap_t map)
 {
+	struct rump_bus_dma_cookie *cookie = map->_dm_cookie;
 
 	/*
 	 * No resources to free; just mark the mappings as
@@ -434,15 +549,109 @@ bus_dmamap_unload(bus_dma_tag_t t, bus_dmamap_t map)
 	map->dm_maxsegsz = map->_dm_maxmaxsegsz;
 	map->dm_mapsize = 0;
 	map->dm_nsegs = 0;
+
+	if (SEV_ENABLED && cookie) {
+		/* We won't free the bounce buffer, so that it can
+		   be reused. */
+		cookie->origbuf = NULL;
+		cookie->buftype = RUMP_DMA_BUFTYPE_INVALID;
+		cookie->flags &= ~RUMP_DMA_IS_BOUNCING;
+	}
 }
 
 void
 bus_dmamap_sync(bus_dma_tag_t t, bus_dmamap_t map,
 	bus_addr_t offset, bus_size_t len, int ops)
 {
-	/* TODO(sev) */
-	rumpcomp_pci_dmamap_sync(NULL);
+	struct rump_bus_dma_cookie *cookie = map->_dm_cookie;
 
+	if (__predict_false(cookie == NULL))
+		goto out;
+
+	if (__predict_false(len == 0))
+		goto out;
+
+	if (!(cookie->flags & RUMP_DMA_IS_BOUNCING) ||
+	    !(cookie->flags & RUMP_DMA_HAS_BOUNCE))
+			panic("Sync a DMA map without a bounce buffer?");
+
+	switch (cookie->buftype) {
+	case RUMP_DMA_BUFTYPE_LINEAR:
+		if (ops & BUS_DMASYNC_PREWRITE) {
+			memcpy((char *)cookie->bouncebuf_va + offset,
+			    (char *)cookie->origbuf + offset, len);
+		}
+
+		if (ops & BUS_DMASYNC_POSTREAD) {
+			memcpy((char *)cookie->origbuf + offset,
+			    (char *)cookie->bouncebuf_va + offset, len);
+		}
+		break;
+
+	case RUMP_DMA_BUFTYPE_MBUF:
+	    {
+		struct mbuf *m, *m0 = cookie->origbuf;
+		bus_size_t minlen, moff;
+
+		if (ops & BUS_DMASYNC_PREWRITE) {
+			/*
+			 * Copy the caller's buffer to the bounce buffer.
+			 */
+			m_copydata(m0, offset, len,
+			    (char*)cookie->bouncebuf_va + offset);
+		}
+
+		if (ops & BUS_DMASYNC_POSTREAD) {
+			/*
+			 * Copy the bounce buffer to the caller's buffer.
+			 */
+			for (moff = offset, m = m0; m != NULL && len != 0;
+			     m = m->m_next) {
+				/* Find the beginning mbuf. */
+				if (moff >= m->m_len) {
+					moff -= m->m_len;
+					continue;
+				}
+
+				/*
+				 * Now at the first mbuf to sync; nail
+				 * each one until we have exhausted the
+				 * length.
+				 */
+				minlen = len < m->m_len - moff ?
+				    len : m->m_len - moff;
+
+				memcpy(mtod(m, char *) + moff,
+				    (char *)cookie->bouncebuf_va + offset,
+				    minlen);
+
+				moff = 0;
+				len -= minlen;
+				offset += minlen;
+			}
+		}
+		break;
+	    }
+	case RUMP_DMA_BUFTYPE_UIO:
+		/* TODO: should implement this? */
+		panic("%s: X86_DMA_BUFTYPE_UIO", __func__);
+		break;
+
+	case RUMP_DMA_BUFTYPE_RAW:
+		panic("%s: X86_DMA_BUFTYPE_RAW", __func__);
+		break;
+
+	case RUMP_DMA_BUFTYPE_INVALID:
+		panic("%s: X86_DMA_BUFTYPE_INVALID", __func__);
+		break;
+
+	default:
+		panic("%s: unknown buffer type %d", __func__,
+		    cookie->buftype);
+		break;
+	}
+
+out:
 	/* XXX: this might need some MD tweaks */
 	membar_sync();
 }
