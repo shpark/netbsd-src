@@ -83,6 +83,8 @@
 
 #define	EIEIO	membar_sync()
 
+extern int SEV_ENABLED;
+
 int	_bus_dmamap_load_buffer (bus_dma_tag_t, bus_dmamap_t, void *,
 	    bus_size_t, struct vmspace *, int, paddr_t *, int *, int);
 
@@ -127,6 +129,10 @@ bus_dmamap_create(bus_dma_tag_t t, bus_size_t size, int nsegments,
 	map->dm_maxsegsz = maxsegsz;
 	map->dm_mapsize = 0;		/* no valid mappings */
 	map->dm_nsegs = 0;
+
+	if (SEV_ENABLED) {
+		aprint_verbose("SEV enabled");
+	}
 
 	*dmamp = map;
 	return (0);
